@@ -35,10 +35,10 @@ class AuthMiddleware(BaseHTTPMiddleware):
             try:
                 payload = decode_access_token(token)
                 request.state.user_id = payload["sub"]
-                request.state.user_email = payload["email"]
+                request.state.user_email = payload.get("email", "")
                 request.state.user_role = payload["role"]
                 request.state.user_tenant_id = payload["tenant_id"]
-            except jwt.PyJWTError:
+            except (jwt.PyJWTError, KeyError):
                 pass  # Leave user info unset; dependency checks will handle auth
 
         return await call_next(request)

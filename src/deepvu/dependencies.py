@@ -14,7 +14,7 @@ _analytics_backend: AnalyticsQueryService | None = None
 def get_analytics_service() -> AnalyticsQueryService:
     global _analytics_backend
     if _analytics_backend is None:
-        _analytics_backend = DuckDBAnalyticsBackend()
+        _analytics_backend = DuckDBAnalyticsBackend(seed=True)
     return _analytics_backend
 
 

@@ -71,7 +71,7 @@
 |-----------|-----------|---------|
 | API Framework | FastAPI 0.115+ | Async REST API |
 | Metadata DB | PostgreSQL 16 | Tenants, users, branding, RLS policies |
-| Analytics DB | DuckDB | Ad performance data (swappable to BigQuery) |
+| Analytics DB | DuckDB (in-memory, seeded at startup) | Ad performance data (swappable to BigQuery) |
 | Cache/Sessions | Redis 7 | Refresh tokens, rate limits, query cache, domain cache |
 | ORM | SQLAlchemy 2.0 (async) | Database operations |
 | Auth | PyJWT with RS256 | JSON Web Tokens |
@@ -479,7 +479,7 @@ Execute an analytics SQL query. RLS (advertiser_id filtering) is **automatically
 **Request:**
 ```json
 {
-  "sql": "SELECT campaign, SUM(impressions) as total_impressions FROM ad_metrics GROUP BY campaign",
+  "sql": "SELECT campaign, SUM(impressions) as total_impressions FROM campaign_metrics GROUP BY campaign",
   "params": {}
 }
 ```
@@ -488,10 +488,11 @@ Execute an analytics SQL query. RLS (advertiser_id filtering) is **automatically
 ```json
 {
   "data": [
-    { "campaign": "Summer 2024", "total_impressions": 150000 },
-    { "campaign": "Holiday Push", "total_impressions": 230000 }
+    { "campaign": "Spring Sale 2026", "total_impressions": 2200000 },
+    { "campaign": "Summer Campaign", "total_impressions": 2050000 },
+    { "campaign": "Fall Push", "total_impressions": 2140000 }
   ],
-  "row_count": 2,
+  "row_count": 3,
   "cached": false
 }
 ```
@@ -510,6 +511,63 @@ Execute an analytics SQL query. RLS (advertiser_id filtering) is **automatically
 
 // 401 - Not authenticated
 { "detail": "Not authenticated" }
+```
+
+### Analytics Tables (DuckDB)
+
+The in-memory DuckDB is seeded at startup with dev data. All tables have an `advertiser_id` column for RLS filtering — the frontend never needs to include this in queries; it's injected automatically.
+
+| Table | Dashboard Tab | Key Columns |
+|-------|---------------|-------------|
+| `campaign_metrics` | Campaign Overview (Overall) | `campaign`, `sub_campaign`, `plan_line_item`, `channel`, `currency`, `spends`, `impressions`, `clicks`, `ctr`, `views`, `vtr`, `conversions`, `cpm`, `cpc` |
+| `youtube_metrics` | Campaign Overview (YouTube) | `campaign`, `sub_campaign`, `plan_line_item`, `currency`, `spends`, `impressions`, `views`, `vtr`, `clicks`, `ctr`, `earned_views`, `earned_subscribers` |
+| `reach_frequency` | Reach & Frequency | `sub_campaign`, `plan_line_item`, `frequency`, `reach`, `impressions`, `currency`, `spends` |
+| `device_metrics` | Device Type | `sub_campaign`, `plan_line_item`, `device_type`, `currency`, `spends`, `impressions`, `clicks`, `ctr`, `views`, `vtr` |
+| `geo_region_metrics` | Geo Trends → Region | `sub_campaign`, `plan_line_item`, `region`, `currency`, `spends`, `impressions`, `cpm` |
+| `geo_city_metrics` | Geo Trends → City | `sub_campaign`, `plan_line_item`, `city`, `currency`, `spends`, `impressions`, `cpm` |
+| `placement_metrics` | Placements | `placement`, `currency`, `spends`, `impressions`, `clicks`, `ctr`, `views`, `vtr`, `cpm` |
+| `creative_metrics` | Creative | `sub_campaign`, `plan_line_item`, `creative`, `creative_name`, `format`, `concept`, `size`, `currency`, `spends`, `impressions`, `cpm`, `clicks`, `ctr` |
+
+**Example queries per tab:**
+
+```sql
+-- Campaign Overview (Overall)
+SELECT campaign, sub_campaign, currency, SUM(spends) as spends, SUM(impressions) as impressions,
+       SUM(clicks) as clicks, SUM(views) as views FROM campaign_metrics GROUP BY 1,2,3
+
+-- Device Type pie charts
+SELECT device_type, SUM(spends) as value FROM device_metrics GROUP BY device_type
+
+-- Device Type snapshot table
+SELECT device_type, currency, SUM(spends) as spends, SUM(impressions) as impressions,
+       SUM(clicks) as clicks, ROUND(SUM(clicks)*100.0/SUM(impressions),2) as ctr,
+       SUM(views) as views, ROUND(SUM(views)*100.0/SUM(impressions),2) as vtr
+FROM device_metrics GROUP BY device_type, currency
+
+-- Geo Trends region pie chart
+SELECT region as name, SUM(spends) as value FROM geo_region_metrics GROUP BY region
+
+-- Geo Trends region table
+SELECT region, currency, SUM(spends) as spends, SUM(impressions) as impressions,
+       ROUND(SUM(spends)/SUM(impressions)*1000,2) as cpm FROM geo_region_metrics GROUP BY region, currency
+
+-- Creative performance table
+SELECT creative, creative_name, format, currency, SUM(spends) as spends,
+       SUM(impressions) as impressions, ROUND(SUM(spends)/SUM(impressions)*1000,2) as cpm,
+       SUM(clicks) as clicks, ROUND(SUM(clicks)*100.0/SUM(impressions),2) as ctr
+FROM creative_metrics GROUP BY creative, creative_name, format, currency
+
+-- Filter by sub_campaign (append WHERE clause)
+SELECT * FROM device_metrics WHERE sub_campaign = 'Brand Awareness'
+```
+
+**Filter values** — to populate filter dropdowns, query distinct values:
+```sql
+SELECT DISTINCT sub_campaign FROM campaign_metrics
+SELECT DISTINCT plan_line_item FROM campaign_metrics
+SELECT DISTINCT format FROM creative_metrics
+SELECT DISTINCT concept FROM creative_metrics
+SELECT DISTINCT size FROM creative_metrics
 ```
 
 ---

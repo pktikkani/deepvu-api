@@ -18,8 +18,12 @@ class DuckDBAnalyticsBackend:
         db_path: Path to the DuckDB database file, or ":memory:" for in-memory.
     """
 
-    def __init__(self, db_path: str = ":memory:") -> None:
+    def __init__(self, db_path: str = ":memory:", *, seed: bool = False) -> None:
         self._conn = duckdb.connect(db_path)
+        if seed:
+            from deepvu.analytics.seed_data import seed_analytics
+
+            seed_analytics(self._conn)
 
     async def execute_query(
         self, query: str, params: dict, rls_advertiser_id: str

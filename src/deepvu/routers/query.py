@@ -34,15 +34,18 @@ async def execute_query(
         data = json.loads(cached)
         return QueryResponse(data=data, row_count=len(data), cached=True)
 
-    # The analytics backend needs the advertiser_id for RLS
-    # Get it from the tenant (resolved by middleware/dependency)
-    from sqlalchemy.ext.asyncio import AsyncSession
+    # Resolve advertiser_id from tenant for RLS filtering
+    from sqlalchemy import select
     from deepvu.database import get_db
-    from deepvu.repositories.tenant_repo import TenantRepository
+    from deepvu.models.tenant import Tenant
 
-    # Use tenant_id to get advertiser_id - we need the actual value
-    # For now, use tenant_id as the RLS filter (will be resolved from tenant in production)
-    rls_advertiser_id = tenant_id
+    async for db in get_db():
+        result = await db.execute(select(Tenant).where(Tenant.id == tenant_id))
+        tenant = result.scalar_one_or_none()
+        if tenant is None:
+            raise ValidationError("Tenant not found")
+        rls_advertiser_id = tenant.advertiser_id
+        break
 
     try:
         data = await analytics.execute_query(body.sql, body.params, rls_advertiser_id)

@@ -1,4 +1,6 @@
-from pydantic import Field
+from pathlib import Path
+
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 
@@ -10,6 +12,8 @@ class Settings(BaseSettings):
 
     JWT_PRIVATE_KEY: str = ""
     JWT_PUBLIC_KEY: str = ""
+    JWT_PRIVATE_KEY_PATH: str = ""
+    JWT_PUBLIC_KEY_PATH: str = ""
     JWT_ALGORITHM: str = "RS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -21,6 +25,18 @@ class Settings(BaseSettings):
 
     GOOGLE_CLIENT_ID: str = ""
     GOOGLE_CLIENT_SECRET: str = ""
+
+    @model_validator(mode="after")
+    def load_keys_from_files(self) -> "Settings":
+        if not self.JWT_PRIVATE_KEY and self.JWT_PRIVATE_KEY_PATH:
+            path = Path(self.JWT_PRIVATE_KEY_PATH)
+            if path.exists():
+                self.JWT_PRIVATE_KEY = path.read_text()
+        if not self.JWT_PUBLIC_KEY and self.JWT_PUBLIC_KEY_PATH:
+            path = Path(self.JWT_PUBLIC_KEY_PATH)
+            if path.exists():
+                self.JWT_PUBLIC_KEY = path.read_text()
+        return self
 
 
 settings = Settings()

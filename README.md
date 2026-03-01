@@ -33,6 +33,7 @@ Multi-Tenant Ad Analytics Platform API — a white-labeled dashboard backend tha
 - Python 3.12+
 - [uv](https://docs.astral.sh/uv/) package manager
 - Docker & Docker Compose
+- Redis 7 (running locally or via Docker)
 
 ### Setup
 
@@ -42,18 +43,73 @@ git clone https://github.com/pktikkani/deepvu-api.git
 cd deepvu-api
 uv sync --all-extras
 
-# Start infrastructure
-docker compose up -d
-
 # Copy env and configure
 cp .env.example .env
-
-# Run migrations (requires Postgres running)
-uv run alembic upgrade head
-
-# Start the server
-uv run uvicorn deepvu.main:app --reload
 ```
+
+### Infrastructure
+
+The project uses Docker for PostgreSQL and expects Redis to be running locally.
+
+```bash
+# Start PostgreSQL (mapped to port 5433 to avoid conflicts with local Postgres)
+docker compose up -d postgres
+
+# If you don't have Redis running locally, start it via Docker:
+docker compose up -d redis
+```
+
+> **Note:** Docker Postgres is mapped to port **5433** (not 5432) to avoid conflicts with any local PostgreSQL installation. If you don't have a local Postgres, you can change the port back to `5432` in both `docker-compose.yml` and `.env`.
+
+### Generate JWT Keys
+
+The API uses RS256 JWT tokens. Generate a key pair before running:
+
+```bash
+mkdir -p keys
+openssl genpkey -algorithm RSA -out keys/private.pem -pkeyopt rsa_keygen_bits:2048
+openssl rsa -pubout -in keys/private.pem -out keys/public.pem
+```
+
+The `.env` file references these via `JWT_PRIVATE_KEY_PATH` and `JWT_PUBLIC_KEY_PATH`. You can also set `JWT_PRIVATE_KEY` and `JWT_PUBLIC_KEY` directly with the PEM content.
+
+### Database Migrations
+
+```bash
+# Generate migration (only needed if models change)
+uv run alembic revision --autogenerate -m "description"
+
+# Apply migrations
+uv run alembic upgrade head
+```
+
+### Run the API
+
+```bash
+uv run uvicorn deepvu.main:app --reload --port 8000
+```
+
+The API will be available at:
+- **API**: http://localhost:8000
+- **Swagger Docs**: http://localhost:8000/docs
+- **ReDoc**: http://localhost:8000/redoc
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `postgresql+asyncpg://deepvu:deepvu_dev@localhost:5433/deepvu` | PostgreSQL connection string |
+| `REDIS_URL` | `redis://localhost:6379/0` | Redis connection string |
+| `JWT_PRIVATE_KEY_PATH` | `keys/private.pem` | Path to RSA private key |
+| `JWT_PUBLIC_KEY_PATH` | `keys/public.pem` | Path to RSA public key |
+| `JWT_ALGORITHM` | `RS256` | JWT signing algorithm |
+| `JWT_ACCESS_TOKEN_EXPIRE_MINUTES` | `60` | Access token TTL |
+| `JWT_REFRESH_TOKEN_EXPIRE_DAYS` | `7` | Refresh token TTL |
+| `RATE_LIMIT_PER_USER` | `100` | Requests per minute per user |
+| `RATE_LIMIT_PER_TENANT` | `1000` | Requests per minute per tenant |
+| `CORS_ORIGINS` | `["http://localhost:3000"]` | Allowed CORS origins |
+| `GOOGLE_CLIENT_ID` | | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | | Google OAuth client secret |
 
 ### Run Tests
 

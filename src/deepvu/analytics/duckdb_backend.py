@@ -1,6 +1,7 @@
 """DuckDB-based analytics backend with RLS enforcement."""
 
 import asyncio
+import threading
 
 import duckdb
 
@@ -14,12 +15,17 @@ class DuckDBAnalyticsBackend:
     Uses duckdb for fast columnar analytics.  Every query goes through
     RLS injection and validation before execution.
 
+    A threading lock serialises access to the underlying DuckDB connection
+    because DuckDB does not support concurrent execute/fetchall from
+    multiple threads on the same connection.
+
     Args:
         db_path: Path to the DuckDB database file, or ":memory:" for in-memory.
     """
 
     def __init__(self, db_path: str = ":memory:", *, seed: bool = False) -> None:
         self._conn = duckdb.connect(db_path)
+        self._lock = threading.Lock()
         if seed:
             from deepvu.analytics.seed_data import seed_analytics
 
@@ -51,9 +57,10 @@ class DuckDBAnalyticsBackend:
             raise ValueError("RLS filter not applied")
 
         def _run() -> list[dict]:
-            result = self._conn.execute(secured)
-            columns = [desc[0] for desc in result.description]
-            return [dict(zip(columns, row)) for row in result.fetchall()]
+            with self._lock:
+                result = self._conn.execute(secured)
+                columns = [desc[0] for desc in result.description]
+                return [dict(zip(columns, row)) for row in result.fetchall()]
 
         return await asyncio.to_thread(_run)
 
@@ -61,8 +68,9 @@ class DuckDBAnalyticsBackend:
         """Return a list of table names in the database."""
 
         def _run() -> list[str]:
-            result = self._conn.execute("SHOW TABLES")
-            return [row[0] for row in result.fetchall()]
+            with self._lock:
+                result = self._conn.execute("SHOW TABLES")
+                return [row[0] for row in result.fetchall()]
 
         return await asyncio.to_thread(_run)
 
@@ -77,7 +85,8 @@ class DuckDBAnalyticsBackend:
         """
 
         def _run() -> list[dict]:
-            result = self._conn.execute(f"DESCRIBE {table_name}")
-            return [{"name": row[0], "type": row[1]} for row in result.fetchall()]
+            with self._lock:
+                result = self._conn.execute(f"DESCRIBE {table_name}")
+                return [{"name": row[0], "type": row[1]} for row in result.fetchall()]
 
         return await asyncio.to_thread(_run)
